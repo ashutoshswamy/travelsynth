@@ -1,0 +1,178 @@
+:root {
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+
+  /* Color Palette - Light Theme (Parchment & Ink) */
+  --bg-primary: #f7f4ef;      /* Warm Parchment */
+  --bg-secondary: #fffdfb;    /* Warm Manila Cardstock */
+  --bg-tertiary: #f0ebe2;     /* Ticket grey */
+  --text-primary: #161b2b;    /* Ink Navy */
+  --text-secondary: #585d6b;  /* Weathered slate */
+  --text-muted: #a69e94;      /* Dust */
+  
+  --primary: #f35e3e;         /* Boarding Coral */
+  --primary-hover: #d94527;
+  --primary-light: rgba(243, 94, 62, 0.05);
+  --primary-glow: rgba(243, 94, 62, 0.15);
+  
+  --accent: #2e4a3e;          /* Luggage Olive */
+  --accent-light: rgba(46, 74, 62, 0.08);
+  
+  --emerald: #166534;         /* Forest dark green */
+  --emerald-light: #e8f5e9;
+
+  --border-color: #eae6df;
+  --border-focus: #c2bbb0;
+  
+  /* Tactile Letterpress Solid Shadows */
+  --shadow-sm: 2px 2px 0px var(--border-focus);
+  --shadow-md: 4px 4px 0px var(--text-primary);
+  --shadow-lg: 6px 6px 0px var(--text-primary);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  
+  /* Travel activity badge colors */
+  --badge-sightseeing: #3b82f6;
+  --badge-dining: #f97316;
+  --badge-transit: #8b5cf6;
+  --badge-lodging: #0d9488;
+  --badge-shopping: #ec4899;
+  --badge-nature: #15803d;
+}
+
+[data-theme="dark"] {
+  /* Color Palette - Dark Theme (Night Map) */
+  --bg-primary: #0b0c10;      /* Midnight Blue-Black */
+  --bg-secondary: #12141c;    /* Deep Ink Navy */
+  --bg-tertiary: #191c27;     /* Midnight Slate */
+  --text-primary: #e9ecf5;    /* Soft Chalk */
+  --text-secondary: #9aa1b2;  /* Slate Chalk */
+  --text-muted: #575e70;      /* Dark Dust */
+  
+  --primary: #ff7a5c;         /* Neon Coral */
+  --primary-hover: #ff9179;
+  --primary-light: rgba(255, 122, 92, 0.08);
+  --primary-glow: rgba(255, 122, 92, 0.2);
+  
+  --accent: #4e735f;          /* Brightened Olive */
+  --accent-light: rgba(78, 115, 95, 0.1);
+  
+  --emerald: #34d399;
+  --emerald-light: rgba(52, 211, 153, 0.15);
+
+  --border-color: #222634;
+  --border-focus: #373e54;
+
+  --shadow-sm: 2px 2px 0px var(--border-focus);
+  --shadow-md: 4px 4px 0px var(--border-focus);
+  --shadow-lg: 6px 6px 0px var(--text-primary);
+}
+
+/* Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Scrollbars to match ticket stub aesthetic */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-focus);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+/* Interactive elements */
+button {
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--text-primary);
+  box-shadow: 2px 2px 0px var(--text-primary);
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+}
+
+button:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px var(--text-primary);
+}
+
+button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px var(--text-primary);
+}
+
+input, select, textarea {
+  font-family: var(--font-sans);
+  outline: none;
+  border: 1px solid var(--text-primary);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  box-shadow: 2px 2px 0px var(--border-color);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  box-shadow: 2px 2px 0px var(--primary);
+}
+
+/* Layout container override */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Print Overrides */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-break {
+    page-break-before: always;
+  }
+}
