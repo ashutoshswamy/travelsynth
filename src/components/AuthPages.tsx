@@ -1,3 +1,4 @@
+import { sileo } from 'sileo';
 import { useState } from 'react';
 import { ArrowLeft, Check, Eye, EyeOff, ShieldCheck, MailCheck } from 'lucide-react';
 import { authErrorMessage, useAuth } from '../auth';
@@ -55,7 +56,6 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
   const [adult, setAdult] = useState(false);
   const [terms, setTerms] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
 
   const copy = COPY[kind];
@@ -63,12 +63,11 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
   const consentError = 'Please confirm you are 18 or older and accept the Terms and Privacy Policy.';
 
   const run = async (fn: () => Promise<void>) => {
-    setError('');
     setBusy(true);
     try {
       await fn();
     } catch (e) {
-      setError(authErrorMessage(e));
+      sileo.error({ title: authErrorMessage(e) });
     } finally {
       setBusy(false);
     }
@@ -77,7 +76,7 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
   // On success the app sees the signed-in user and routes into the planner.
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (kind === 'signup' && !consentOk) return setError(consentError);
+    if (kind === 'signup' && !consentOk) return void sileo.error({ title: consentError });
     void run(async () => {
       if (kind === 'signup') await signUpEmail(name.trim(), email.trim(), password);
       else if (kind === 'signin') await signInEmail(email.trim(), password);
@@ -89,14 +88,14 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
   };
 
   const google = () => {
-    if (kind === 'signup' && !consentOk) return setError(consentError);
+    if (kind === 'signup' && !consentOk) return void sileo.error({ title: consentError });
     void run(async () => {
       await signInGoogle(kind === 'signup' && consentOk);
     });
   };
 
   const confirm = () => {
-    if (!consentOk) return setError(consentError);
+    if (!consentOk) return void sileo.error({ title: consentError });
     void run(completeConsent);
   };
 
@@ -182,7 +181,6 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
           {kind === 'consent' && (
             <>
               {consentFields}
-              {error && <p className="form-error" role="alert">{error}</p>}
               <button className="btn btn-primary btn-lg ap-submit" onClick={confirm} disabled={busy}>Create my account</button>
               <button className="btn btn-ghost ap-secondary" onClick={decline} disabled={busy}>No thanks, remove it</button>
             </>
@@ -197,7 +195,6 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
             ) : (
               <form className="ap-form" onSubmit={submit}>
                 {emailField}
-                {error && <p className="form-error" role="alert">{error}</p>}
                 <button type="submit" className="btn btn-primary btn-lg ap-submit" disabled={busy}>
                   {busy ? 'Sending...' : 'Send reset link'}
                 </button>
@@ -246,7 +243,6 @@ export function AuthPage({ kind, themePref, onThemeChange }: AuthPageProps) {
                   {kind === 'signup' && <small className="hint">At least 8 characters.</small>}
                 </div>
 
-                {error && <p className="form-error" role="alert">{error}</p>}
 
                 <button type="submit" className="btn btn-primary btn-lg ap-submit" disabled={busy}>
                   {busy ? 'One moment...' : kind === 'signup' ? 'Create account' : 'Sign in'}

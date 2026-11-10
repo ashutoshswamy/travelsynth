@@ -11,9 +11,9 @@ export const generateItinerary = async (
 
   const genAI = new GoogleGenerativeAI(apiKey);
   
-  // Use gemini-1.5-flash since it is extremely fast and robust for JSON generation
+  // Use gemini-3.5-flash-lite since it is extremely fast and robust for JSON generation
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash-lite',
     generationConfig: {
       responseMimeType: 'application/json',
     },

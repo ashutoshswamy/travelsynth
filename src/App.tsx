@@ -1,3 +1,4 @@
+import { sileo } from 'sileo';
 import { useState, useEffect, useCallback } from 'react';
 import {
   Compass,
@@ -96,7 +97,6 @@ function App() {
 
   const { user, loading: authLoading, needsConsent, signOut } = useAuth();
   const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Hash routes: legal (#/terms, #/privacy, #/cookies) and auth (#/signin, #/signup, #/forgot, #/consent)
   const readRoute = () => window.location.hash.match(/^#\/(\w+)$/)?.[1] ?? '';
@@ -144,7 +144,7 @@ function App() {
     return onSnapshot(
       q,
       (snap) => setSavedTrips(snap.docs.map((d) => ({ ...(d.data() as Omit<SavedTrip, 'id'>), id: d.id }))),
-      () => setSaveError('Could not load your saved trips. Check your connection and the Firestore rules.')
+      () => sileo.error({ title: 'Could not load your saved trips', description: 'Check your connection and the Firestore rules.' })
     );
   }, [user]);
 
@@ -174,11 +174,10 @@ function App() {
     async (trip: Omit<SavedTrip, 'id'>) => {
       if (!user || !db) return null;
       try {
-        setSaveError(null);
         const ref = await addDoc(collection(db, 'users', user.uid, 'trips'), { ...trip, createdAt: Date.now() });
         return ref.id;
       } catch {
-        setSaveError('Could not save this trip to your account.');
+        sileo.error({ title: 'Could not save this trip to your account' });
         return null;
       }
     },
@@ -221,7 +220,9 @@ function App() {
     if (!destination.trim() || !from.trim()) return;
 
     if (!apiKey) {
-      setError('Google Gemini API Key is missing. Please define VITE_GEMINI_API_KEY in a .env file in the project root.');
+      const msg = 'Google Gemini API Key is missing. Please define VITE_GEMINI_API_KEY in a .env file in the project root.';
+      setError(msg);
+      sileo.error({ title: 'Gemini API key missing', description: msg });
       setActiveTab('itinerary');
       return;
     }
@@ -252,8 +253,11 @@ function App() {
         itinerary: generated,
       });
       setActiveTripId(id);
+      sileo.success({ title: 'Itinerary ready' });
     } catch (err: unknown) {
-      setError(err instanceof Error && err.message ? err.message : 'Something went wrong during generation. Please try again.');
+      const msg = err instanceof Error && err.message ? err.message : 'Something went wrong during generation. Please try again.';
+      setError(msg);
+      sileo.error({ title: 'Could not build that plan', description: msg });
     } finally {
       setIsLoading(false);
     }
@@ -269,7 +273,10 @@ function App() {
       preferences: { from, destination, days, budget, travelMode, interests, otherPreferences },
       itinerary,
     });
-    if (id) setActiveTripId(id);
+    if (id) {
+      setActiveTripId(id);
+      sileo.success({ title: 'Trip saved' });
+    }
   };
 
   const handleLoadSavedTrip = (trip: SavedTrip) => {
@@ -285,9 +292,10 @@ function App() {
     try {
       await deleteDoc(doc(db, 'users', user.uid, 'trips', id));
     } catch {
-      setSaveError('Could not delete that trip. Please try again.');
+      sileo.error({ title: 'Could not delete that trip', description: 'Please try again.' });
       return;
     }
+    sileo.success({ title: 'Trip deleted' });
     if (activeTripId === id) {
       setActiveTripId(null);
       setItinerary(null);
@@ -373,9 +381,6 @@ function App() {
       </header>
 
       <main className="app-main">
-        {saveError && (
-          <p className="form-error app-banner" role="alert">{saveError}</p>
-        )}
         {/* PLAN */}
         {activeTab === 'form' && (
           <div className="plan rise">
