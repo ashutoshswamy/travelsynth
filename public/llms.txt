@@ -1,0 +1,6 @@
+# TravelSynth
+
+> Free AI travel itinerary planner. Enter a destination, budget and interests; get a day-by-day plan with activities, cost estimates, stay recommendations and cultural tips. No signup; trips are saved in the browser.
+
+- [Home](https://travelsynth.ashutoshswamy.in/): planner and sample itinerary
+- [Author](https://ashutoshswamy.in): Ashutosh Swamy

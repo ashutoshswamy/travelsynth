@@ -1,0 +1,53 @@
+/* Cookie notice and legal pages. */
+
+/* ───────── Cookie notice ───────── */
+.cookie {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  translate: -50% 0;
+  z-index: 60;
+  width: min(100% - 2rem, 760px);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem 1.25rem;
+  padding: 1.1rem 1.25rem 1.1rem 1.4rem;
+  background: #0d1233;
+  color: #e3e7ff;
+  border-radius: var(--r-surface);
+  box-shadow: 0 24px 48px -16px rgb(0 0 0 / 0.6);
+}
+[data-theme='dark'] .cookie { background: var(--tag-2); }
+.cookie-ico { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--sun); color: #0d1233; }
+.cookie h2 { font-size: 1.1rem; color: #fff; margin-bottom: 0.2rem; }
+.cookie p { font-size: 0.93rem; line-height: 1.45; }
+.cookie a, .legal a { font-weight: 700; }
+.cookie a { color: var(--sun); }
+.cookie :focus-visible { outline-color: var(--sun); }
+.cookie-btn { min-height: 46px; padding: 0 1.4rem; font-size: 1rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .cookie { animation: cookie-in 0.7s var(--ease) 0.6s both; }
+  @keyframes cookie-in { from { opacity: 0; translate: -50% 30px; } }
+}
+@media (max-width: 600px) {
+  .cookie { grid-template-columns: 1fr; }
+  .cookie-ico { display: none; }
+  .cookie-btn { width: 100%; }
+}
+
+/* ───────── Legal ───────── */
+.legal {
+  width: min(720px, 100% - 2rem);
+  margin: 0 auto;
+  padding-block: 2.5rem 5rem;
+}
+.legal-back { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; margin-bottom: 2rem; text-decoration: none; }
+.legal h1 { font-size: clamp(2.4rem, 6vw, 3.8rem); font-weight: 800; letter-spacing: -0.04em; }
+.legal-intro { margin-top: 1rem; font-size: 1.15rem; color: var(--ink-2); }
+.legal section { margin-top: 2.25rem; }
+.legal h2 { font-size: 1.5rem; margin-bottom: 0.6rem; }
+.legal section p { color: var(--ink-2); max-width: 68ch; }
+.legal section p + p { margin-top: 0.7rem; }
+.legal-version { margin-top: 2.5rem; font-size: 0.88rem; color: var(--ink-3); }
+.legal-nav { display: flex; flex-wrap: wrap; gap: 0.6rem 1.5rem; margin-top: 1rem; padding-top: 1.25rem; border-top: 2px dashed var(--line); }

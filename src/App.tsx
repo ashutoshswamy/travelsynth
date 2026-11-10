@@ -1,28 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { useGSAP } from '@gsap/react';
-import { 
-  Compass, 
-  History, 
-  Sun, 
-  Moon, 
-  MapPin, 
-  Calendar, 
-  DollarSign, 
-  Navigation, 
-  FolderOpen, 
-  Trash2, 
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Compass,
+  History,
+  MapPin,
+  Calendar,
+  Wallet as WalletIcon,
+  Navigation,
+  FolderOpen,
+  Trash2,
   Sparkles,
   ArrowRight,
   BookOpen,
-  Trees, 
-  Landmark, 
-  Utensils, 
-  Flame, 
-  ShoppingBag, 
-  Palette, 
-  Wine, 
+  Trees,
+  Landmark,
+  Utensils,
+  Flame,
+  ShoppingBag,
+  Palette,
+  Wine,
   Users,
   Plane,
   Train,
@@ -30,23 +25,29 @@ import {
   Bus,
   TrainFront,
   Footprints,
-  Wallet,
   Coins,
   Crown,
   Map,
   AlertCircle,
+  Check,
+  LogOut,
 } from 'lucide-react';
 import type { SavedTrip, Itinerary, TripPreferences } from './types';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ItineraryDisplay } from './components/ItineraryDisplay';
-import { LandingPage } from './components/LandingPage';
+import { LandingPage, type Prefill } from './components/LandingPage';
+import { AuthPage, AUTH_ROUTES, type AuthKind } from './components/AuthPages';
+import { ThemeMenu, type ThemePref } from './components/ThemeMenu';
+import { CookieBanner } from './components/CookieBanner';
+import { LegalPage, type LegalKind } from './components/LegalPage';
+import { useAuth } from './auth';
+import { db } from './firebase';
+import { addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { generateItinerary } from './utils/gemini';
+import { SUGGESTION_TEMPLATES, cityCode } from './constants';
 import './App.css';
+import './components/Overlays.css';
 
-// Register GSAP ScrollTrigger plugin
-gsap.registerPlugin(ScrollTrigger);
-
-// Interests options
 const INTERESTS_OPTIONS = [
   { label: 'Nature & Outdoors', icon: Trees },
   { label: 'Culture & History', icon: Landmark },
@@ -66,315 +67,152 @@ const TRAVEL_MODES = [
   { label: 'Bus', icon: Bus },
   { label: 'Transit', icon: TrainFront },
   { label: 'Walking', icon: Footprints },
-];
+] as const;
 
 const BUDGET_TIERS = [
-  { label: 'Budget', icon: Wallet, desc: 'Hostels & free spots' },
-  { label: 'Moderate', icon: Coins, desc: 'Standard hotels & dining' },
-  { label: 'Luxury', icon: Crown, desc: 'High-end stays & tours' },
-];
+  { label: 'Budget', icon: WalletIcon, desc: 'Hostels and free spots' },
+  { label: 'Moderate', icon: Coins, desc: 'Standard hotels and dining' },
+  { label: 'Luxury', icon: Crown, desc: 'High-end stays and tours' },
+] as const;
 
-const SUGGESTION_TEMPLATES = [
-  {
-    from: 'London',
-    destination: 'Paris, France',
-    days: 4,
-    budget: 'Moderate' as const,
-    travelMode: 'Train' as const,
-    interests: ['Food & Dining', 'Art & Museums', 'Culture & History'],
-    otherPreferences: 'Prefer walking wherever possible and exploring historical cafes.',
-    title: 'Paris Explorer',
-    desc: '4 days of art, history, and cafes'
-  },
-  {
-    from: 'San Francisco',
-    destination: 'Tokyo, Japan',
-    days: 5,
-    budget: 'Luxury' as const,
-    travelMode: 'Flight' as const,
-    interests: ['Food & Dining', 'Shopping', 'Culture & History'],
-    otherPreferences: 'High priority on Michelin dining, shopping in Ginza, and traditional tea ceremonies.',
-    title: 'Tokyo Luxury Culinary',
-    desc: '5 days of fine dining and style'
-  },
-  {
-    from: 'Munich',
-    destination: 'Interlaken, Switzerland',
-    days: 6,
-    budget: 'Moderate' as const,
-    travelMode: 'Car' as const,
-    interests: ['Nature & Outdoors', 'Adventure & Sports'],
-    otherPreferences: 'Keen on hiking routes, panoramic viewing spots, and exploring lake cabins.',
-    title: 'Swiss Alps Road Trip',
-    desc: '6 days of alpine scenic hiking'
-  }
-];
+type Tab = 'form' | 'itinerary' | 'saved';
 
 function App() {
-  // Theme state
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+  const [themePref, setThemePref] = useState<ThemePref>(() => {
     const saved = localStorage.getItem('theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
   });
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const theme: 'light' | 'dark' = themePref === 'system' ? (systemDark ? 'dark' : 'light') : themePref;
 
-  // Landing Page toggle state
   const [isLanding, setIsLanding] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>('form');
 
-  // Layout Tab State: 'form' | 'itinerary' | 'saved'
-  const [activeTab, setActiveTab] = useState<'form' | 'itinerary' | 'saved'>('form');
+  const { user, loading: authLoading, needsConsent, signOut } = useAuth();
+  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Saved trips state
-  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>(() => {
-    const saved = localStorage.getItem('saved_trips');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Hash routes: legal (#/terms, #/privacy, #/cookies) and auth (#/signin, #/signup, #/forgot, #/consent)
+  const readRoute = () => window.location.hash.match(/^#\/(\w+)$/)?.[1] ?? '';
+  const [route, setRoute] = useState(readRoute);
+  useEffect(() => {
+    const onHash = () => setRoute(readRoute());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const go = (r: string) => {
+    window.location.hash = r ? `#/${r}` : '';
+  };
+  const legal = (['terms', 'privacy', 'cookies'].includes(route) ? route : null) as LegalKind | null;
+  const authKind = (AUTH_ROUTES as string[]).includes(route) ? (route as AuthKind) : null;
 
-  // Form State
+  // Form state
   const [from, setFrom] = useState('');
   const [destination, setDestination] = useState('');
   const [days, setDays] = useState(3);
-  const [budget, setBudget] = useState<'Budget' | 'Moderate' | 'Luxury'>('Moderate');
-  const [travelMode, setTravelMode] = useState<'Flight' | 'Train' | 'Car' | 'Bus' | 'Transit' | 'Walking'>('Flight');
+  const [budget, setBudget] = useState<TripPreferences['budget']>('Moderate');
+  const [travelMode, setTravelMode] = useState<TripPreferences['travelMode']>('Flight');
   const [interests, setInterests] = useState<string[]>(['Nature & Outdoors']);
   const [otherPreferences, setOtherPreferences] = useState('');
 
-  // Generation status state
+  // Generation state
   const [isLoading, setIsLoading] = useState(false);
   const [itinerary, setItinerary] = useState<Itinerary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeTripId, setActiveTripId] = useState<string | null>(null);
 
-  // Read API Key from environment variable
   const apiKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || '';
 
-  // GSAP references
-  const containerRef = useRef<HTMLDivElement>(null);
-  const ticketRef = useRef<HTMLDivElement>(null);
-
-  // Apply theme class to document element
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    localStorage.setItem('theme', themePref);
+  }, [theme, themePref]);
 
-  // Sync saved trips with localStorage
+  // Live-sync this user's trips from Firestore.
   useEffect(() => {
-    localStorage.setItem('saved_trips', JSON.stringify(savedTrips));
-  }, [savedTrips]);
-
-  // GSAP Animation orchestration
-  useGSAP(() => {
-    if (isLanding) {
-      // 1. Landing page initial fade-in triggers
-      gsap.fromTo('.hero-title', 
-        { y: 35, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out' }
-      );
-      gsap.fromTo('.hero-subtitle', 
-        { y: 20, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out', delay: 0.15 }
-      );
-      gsap.fromTo('.landing-cta', 
-        { scale: 0.9, opacity: 0 },
-        { scale: 1, opacity: 1, duration: 0.5, ease: 'back.out(1.3)', delay: 0.3 }
-      );
-      gsap.fromTo('.landing-preview', 
-        { y: 40, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.7, ease: 'power2.out', delay: 0.4 }
-      );
-
-      // 2. Parallax background elements scroll binder
-      gsap.to('.parallax-bg-1', {
-        y: -140,
-        scrollTrigger: {
-          trigger: '.landing-content',
-          start: 'top top',
-          end: 'bottom bottom',
-          scrub: 0.8
-        }
-      });
-      
-      gsap.to('.parallax-bg-2', {
-        y: 100,
-        rotation: 30,
-        scrollTrigger: {
-          trigger: '.landing-content',
-          start: 'top top',
-          end: 'bottom bottom',
-          scrub: 0.8
-        }
-      });
-
-      gsap.to('.parallax-bg-3', {
-        y: -80,
-        scrollTrigger: {
-          trigger: '.landing-content',
-          start: 'top top',
-          end: 'bottom bottom',
-          scrub: 0.8
-        }
-      });
-
-      // 3. Staggered reveal of Step cards on scroll
-      gsap.fromTo('.step-card', 
-        { y: 40, opacity: 0 },
-        { 
-          y: 0, 
-          opacity: 1, 
-          stagger: 0.15, 
-          duration: 0.6, 
-          ease: 'power2.out',
-          scrollTrigger: {
-            trigger: '.how-it-works-section',
-            start: 'top 80%',
-            toggleActions: 'play none none reverse'
-          }
-        }
-      );
-
-      // 4. Staggered reveal of Bespoke Feature cards on scroll
-      gsap.fromTo('.feature-card', 
-        { y: 30, opacity: 0 },
-        { 
-          y: 0, 
-          opacity: 1, 
-          stagger: 0.1, 
-          duration: 0.5, 
-          ease: 'power2.out',
-          scrollTrigger: {
-            trigger: '.landing-features-grid',
-            start: 'top 80%',
-            toggleActions: 'play none none reverse'
-          }
-        }
-      );
-
-      // 5. Testimonials scroll reveal
-      gsap.fromTo('.quote-card', 
-        { opacity: 0, scale: 0.95 },
-        { 
-          opacity: 1, 
-          scale: 1, 
-          stagger: 0.12, 
-          duration: 0.6, 
-          ease: 'power1.out',
-          scrollTrigger: {
-            trigger: '.quotes-section',
-            start: 'top 80%',
-            toggleActions: 'play none none reverse'
-          }
-        }
-      );
-
-      // 6. Final CTA scale pop on scroll
-      gsap.fromTo('.final-cta-card', 
-        { scale: 0.96, opacity: 0 },
-        { 
-          scale: 1, 
-          opacity: 1, 
-          duration: 0.6, 
-          ease: 'back.out(1.1)',
-          scrollTrigger: {
-            trigger: '.final-cta-section',
-            start: 'top 85%',
-            toggleActions: 'play none none reverse'
-          }
-        }
-      );
-
-    } else {
-      // Workspace tab animations
-      if (activeTab === 'form') {
-        gsap.fromTo('.form-panel-centered', 
-          { y: 20, opacity: 0 }, 
-          { y: 0, opacity: 1, duration: 0.5, ease: 'power2.out' }
-        );
-        gsap.fromTo('.suggestion-card', 
-          { y: 15, opacity: 0 }, 
-          { y: 0, opacity: 1, stagger: 0.08, duration: 0.4, ease: 'power2.out', delay: 0.15 }
-        );
-      } else if (activeTab === 'itinerary') {
-        if (itinerary && !isLoading) {
-          gsap.fromTo('.trip-header-card', 
-            { y: 25, opacity: 0 }, 
-            { y: 0, opacity: 1, duration: 0.5, ease: 'power2.out' }
-          );
-          gsap.fromTo('.timeline-day-block', 
-            { y: 35, opacity: 0 }, 
-            { y: 0, opacity: 1, stagger: 0.15, duration: 0.6, ease: 'power2.out', delay: 0.1 }
-          );
-          gsap.fromTo('.timeline-event-card', 
-            { x: -15, opacity: 0 }, 
-            { x: 0, opacity: 1, stagger: 0.05, duration: 0.5, ease: 'power1.out', delay: 0.25 }
-          );
-          gsap.fromTo('.side-widgets > *', 
-            { y: 20, opacity: 0 }, 
-            { y: 0, opacity: 1, stagger: 0.1, duration: 0.5, ease: 'power2.out', delay: 0.3 }
-          );
-        }
-      } else if (activeTab === 'saved') {
-        if (savedTrips.length > 0) {
-          gsap.fromTo('.passport-card', 
-            { scale: 0.92, opacity: 0 }, 
-            { scale: 1, opacity: 1, stagger: 0.06, duration: 0.5, ease: 'back.out(1.1)' }
-          );
-        }
-      }
+    if (!user || !db) {
+      setSavedTrips([]);
+      return;
     }
-  }, { dependencies: [isLanding, activeTab, itinerary, isLoading, savedTrips.length], scope: containerRef });
-
-  // 3D Parallax Mouse Move effect on the ticket card
-  const handleTicketMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const ticket = ticketRef.current;
-    if (!ticket) return;
-
-    const rect = ticket.getBoundingClientRect();
-    const x = e.clientX - rect.left - rect.width / 2;
-    const y = e.clientY - rect.top - rect.height / 2;
-
-    const tiltX = (y / (rect.height / 2)) * -3;
-    const tiltY = (x / (rect.width / 2)) * 3;
-
-    gsap.to(ticket, {
-      rotateX: tiltX,
-      rotateY: tiltY,
-      transformPerspective: 1000,
-      ease: 'power1.out',
-      duration: 0.25
-    });
-  };
-
-  const handleTicketMouseLeave = () => {
-    const ticket = ticketRef.current;
-    if (!ticket) return;
-
-    gsap.to(ticket, {
-      rotateX: 0,
-      rotateY: 0,
-      ease: 'power2.out',
-      duration: 0.4
-    });
-  };
-
-  const handleInterestToggle = (interestLabel: string) => {
-    setInterests(prev => 
-      prev.includes(interestLabel)
-        ? prev.filter(item => item !== interestLabel)
-        : [...prev, interestLabel]
+    const q = query(collection(db, 'users', user.uid, 'trips'), orderBy('createdAt', 'desc'));
+    return onSnapshot(
+      q,
+      (snap) => setSavedTrips(snap.docs.map((d) => ({ ...(d.data() as Omit<SavedTrip, 'id'>), id: d.id }))),
+      () => setSaveError('Could not load your saved trips. Check your connection and the Firestore rules.')
     );
+  }, [user]);
+
+  // Signed in while on an auth page: leave it and open the planner.
+  useEffect(() => {
+    if (user && authKind) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      setRoute('');
+      setActiveTab('form');
+      setIsLanding(false);
+      window.scrollTo({ top: 0 });
+    }
+  }, [user, authKind]);
+
+  // A signed-in Google account without consent on file must finish the consent page.
+  useEffect(() => {
+    if (needsConsent && route !== 'consent') go('consent');
+    if (!needsConsent && !authLoading && !user && route === 'consent') go('signin');
+  }, [needsConsent, authLoading, user, route]);
+
+  // Signing out returns to the landing page.
+  useEffect(() => {
+    if (!authLoading && !user && !isLanding) setIsLanding(true);
+  }, [authLoading, user, isLanding]);
+
+  const persistTrip = useCallback(
+    async (trip: Omit<SavedTrip, 'id'>) => {
+      if (!user || !db) return null;
+      try {
+        setSaveError(null);
+        const ref = await addDoc(collection(db, 'users', user.uid, 'trips'), { ...trip, createdAt: Date.now() });
+        return ref.id;
+      } catch {
+        setSaveError('Could not save this trip to your account.');
+        return null;
+      }
+    },
+    [user]
+  );
+
+
+  const handleInterestToggle = (label: string) => {
+    setInterests((prev) => (prev.includes(label) ? prev.filter((i) => i !== label) : [...prev, label]));
   };
 
-  const handleApplyTemplate = (template: typeof SUGGESTION_TEMPLATES[0]) => {
-    setFrom(template.from);
-    setDestination(template.destination);
-    setDays(template.days);
-    setBudget(template.budget);
-    setTravelMode(template.travelMode);
-    setInterests(template.interests);
-    setOtherPreferences(template.otherPreferences);
-    
-    // Smooth scroll to top of page
+  const applyPrefill = (p: Prefill) => {
+    if (p.from !== undefined) setFrom(p.from);
+    if (p.destination !== undefined) setDestination(p.destination);
+    if (p.days !== undefined) setDays(p.days);
+    if (p.budget) setBudget(p.budget);
+    if (p.travelMode) setTravelMode(p.travelMode);
+    if (p.interests) setInterests(p.interests);
+    if (p.otherPreferences !== undefined) setOtherPreferences(p.otherPreferences);
+  };
+
+  const handleEnter = (prefill?: Prefill) => {
+    if (prefill) applyPrefill(prefill);
+    if (!user) {
+      go('signup');
+      return;
+    }
+    setActiveTab('form');
+    setIsLanding(false);
+    window.scrollTo({ top: 0 });
+  };
+
+  const handleApplyTemplate = (tpl: (typeof SUGGESTION_TEMPLATES)[number]) => {
+    applyPrefill(tpl);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -401,459 +239,416 @@ function App() {
       budget,
       travelMode,
       interests,
-      otherPreferences: otherPreferences.trim()
+      otherPreferences: otherPreferences.trim(),
     };
 
     try {
       const generated = await generateItinerary(preferences, apiKey);
       setItinerary(generated);
-      
-      const newSavedTrip: SavedTrip = {
-        id: Date.now().toString(),
+
+      const id = await persistTrip({
         dateCreated: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
         preferences,
-        itinerary: generated
-      };
-      setSavedTrips(prev => [newSavedTrip, ...prev]);
-      setActiveTripId(newSavedTrip.id);
-    } catch (err: any) {
-      setError(err.message || 'Something went wrong during generation. Please try again.');
+        itinerary: generated,
+      });
+      setActiveTripId(id);
+    } catch (err: unknown) {
+      setError(err instanceof Error && err.message ? err.message : 'Something went wrong during generation. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSaveCurrentTrip = () => {
+  const handleSaveCurrentTrip = async () => {
     if (!itinerary) return;
-    
-    const exists = savedTrips.some(t => t.itinerary.tripOverview.title === itinerary.tripOverview.title);
+    const exists = savedTrips.some((t) => t.itinerary.tripOverview.title === itinerary.tripOverview.title);
     if (exists) return;
 
-    const newSavedTrip: SavedTrip = {
-      id: Date.now().toString(),
+    const id = await persistTrip({
       dateCreated: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
       preferences: { from, destination, days, budget, travelMode, interests, otherPreferences },
-      itinerary
-    };
-    setSavedTrips(prev => [newSavedTrip, ...prev]);
-    setActiveTripId(newSavedTrip.id);
+      itinerary,
+    });
+    if (id) setActiveTripId(id);
   };
 
   const handleLoadSavedTrip = (trip: SavedTrip) => {
     setItinerary(trip.itinerary);
-    setFrom(trip.preferences.from);
-    setDestination(trip.preferences.destination);
-    setDays(trip.preferences.days);
-    setBudget(trip.preferences.budget);
-    setTravelMode(trip.preferences.travelMode);
-    setInterests(trip.preferences.interests);
-    setOtherPreferences(trip.preferences.otherPreferences);
+    applyPrefill(trip.preferences);
     setActiveTripId(trip.id);
     setError(null);
     setActiveTab('itinerary');
   };
 
-  const handleDeleteSavedTrip = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSavedTrips(prev => prev.filter(trip => trip.id !== id));
+  const handleDeleteSavedTrip = async (id: string) => {
+    if (!user || !db) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'trips', id));
+    } catch {
+      setSaveError('Could not delete that trip. Please try again.');
+      return;
+    }
     if (activeTripId === id) {
       setActiveTripId(null);
       setItinerary(null);
     }
   };
 
-  const isCurrentTripSaved = itinerary 
-    ? savedTrips.some(trip => trip.itinerary.tripOverview.title === itinerary.tripOverview.title)
+  const isCurrentTripSaved = itinerary
+    ? savedTrips.some((trip) => trip.itinerary.tripOverview.title === itinerary.tripOverview.title)
     : false;
 
-  // LANDING PAGE WORKSPACE VIEW
-  if (isLanding) {
+  const overlays = <CookieBanner />;
+
+  if (legal) {
     return (
-      <LandingPage
-        onEnter={() => setIsLanding(false)}
-        theme={theme}
-        onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-      />
+      <>
+        <LegalPage kind={legal} />
+        {overlays}
+      </>
     );
   }
 
-  // STANDARD WORKSPACE VIEW
-  return (
-    <div className="app-container">
-      {/* Header */}
-      <header className="app-header">
-        <div className="logo-group" onClick={() => setIsLanding(true)} style={{ cursor: 'pointer' }}>
-          <Compass className="logo-icon floating" />
-          <span className="app-title gradient-text">TravelSynth</span>
-        </div>
-        <div className="header-actions">
-          {/* Tab Navigation */}
-          <div className="layout-tabs no-print">
-            <button 
-              className={`layout-tab-btn ${activeTab === 'form' ? 'active' : ''}`}
-              onClick={() => setActiveTab('form')}
-            >
-              <Compass size={16} />
-              <span>1. Plan Trip</span>
-            </button>
-            <button 
-              className={`layout-tab-btn ${activeTab === 'itinerary' ? 'active' : ''}`}
-              onClick={() => setActiveTab('itinerary')}
-            >
-              <BookOpen size={16} />
-              <span>2. Itinerary</span>
-            </button>
-            <button 
-              className={`layout-tab-btn ${activeTab === 'saved' ? 'active' : ''}`}
-              onClick={() => setActiveTab('saved')}
-            >
-              <History size={16} />
-              <span>3. Saved Binder ({savedTrips.length})</span>
-            </button>
-          </div>
+  if (authKind && !user) {
+    return (
+      <>
+        <AuthPage kind={authKind} themePref={themePref} onThemeChange={setThemePref} />
+        {overlays}
+      </>
+    );
+  }
 
-          <button 
-            className="theme-toggle" 
-            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-            title="Toggle Theme"
-            aria-label="Toggle dark/light mode"
-          >
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+  if (isLanding) {
+    return (
+      <>
+        <LandingPage
+          onEnter={handleEnter}
+          onSignIn={() => go('signin')}
+          signedIn={Boolean(user)}
+          themePref={themePref}
+          onThemeChange={setThemePref}
+        />
+        {overlays}
+      </>
+    );
+  }
+
+  const tabs: { id: Tab; label: string; icon: typeof Compass }[] = [
+    { id: 'form', label: 'Plan', icon: Compass },
+    { id: 'itinerary', label: 'Itinerary', icon: BookOpen },
+    { id: 'saved', label: `Saved (${savedTrips.length})`, icon: History },
+  ];
+
+  return (
+    <>
+    {overlays}
+    <div className="app">
+      <header className="app-header no-print">
+        <div className="app-header-in">
+          <button className="logo app-logo" onClick={() => setIsLanding(true)} aria-label="TravelSynth home">
+            <span className="logo-mark" aria-hidden />
+            TravelSynth
+          </button>
+
+          <nav className="app-tabs" aria-label="Workspace">
+            {tabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                className="app-tab"
+                aria-current={activeTab === id ? 'page' : undefined}
+                onClick={() => setActiveTab(id)}
+              >
+                <Icon size={17} aria-hidden />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <span className="who" title={user?.email ?? ''}>{user?.displayName || user?.email}</span>
+          <ThemeMenu value={themePref} onChange={setThemePref} />
+          <button className="icon-btn" onClick={() => void signOut()} aria-label="Sign out" title="Sign out">
+            <LogOut size={18} />
           </button>
         </div>
       </header>
 
-      {/* Main Workspace */}
-      <div className="dashboard-layout">
-        <div className="main-content" ref={containerRef}>
-          
-          {/* TAB 1: Plan Trip Form */}
-          {activeTab === 'form' && (
-            <div className="tab-pane-container">
-              <section 
-                className="form-panel-centered glass"
-                ref={ticketRef}
-                onMouseMove={handleTicketMouseMove}
-                onMouseLeave={handleTicketMouseLeave}
-                style={{ transformStyle: 'preserve-3d' }}
-              >
-                <div className="ticket-header" style={{ transform: 'translateZ(20px)' }}>
-                  <div>
-                    <h2 className="panel-section-title">
-                      <Sparkles size={20} style={{ color: 'var(--primary)', display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} /> 
-                      Create Travel Ticket
-                    </h2>
-                    <p className="panel-section-desc">Fill in details to print your personalized AI travel itinerary.</p>
+      <main className="app-main">
+        {saveError && (
+          <p className="form-error app-banner" role="alert">{saveError}</p>
+        )}
+        {/* PLAN */}
+        {activeTab === 'form' && (
+          <div className="plan rise">
+            <form className="plan-form" onSubmit={handleGenerate}>
+              <header className="plan-head">
+                <h1>Where are we going?</h1>
+                <p>Answer a few questions. Your day-by-day plan is generated in under a minute.</p>
+              </header>
+
+              <fieldset className="pf-block">
+                <legend className="pf-legend">Route</legend>
+                <div className="pf-row">
+                  <div className="field">
+                    <label htmlFor="pf-from">Leaving from</label>
+                    <input
+                      id="pf-from"
+                      className="input"
+                      placeholder="e.g. London"
+                      value={from}
+                      onChange={(e) => setFrom(e.target.value)}
+                      required
+                    />
                   </div>
-                  <div className="ticket-barcode"></div>
-                </div>
-
-                <form onSubmit={handleGenerate} className="ticket-form-body" style={{ transform: 'translateZ(10px)' }}>
-                  {/* Grid */}
-                  <div className="ticket-form-grid">
-                    
-                    {/* Left Column */}
-                    <div className="form-column-left">
-                      {/* Origin & Destination */}
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label className="form-label">
-                            <MapPin size={14} /> DEP (Origin)
-                          </label>
-                          <div className="input-with-icon">
-                            <MapPin className="input-icon" />
-                            <input 
-                              type="text" 
-                              placeholder="e.g. London" 
-                              value={from} 
-                              onChange={(e) => setFrom(e.target.value)}
-                              required
-                            />
-                          </div>
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label">
-                            <MapPin size={14} /> ARR (Destination)
-                          </label>
-                          <div className="input-with-icon">
-                            <MapPin className="input-icon" />
-                            <input 
-                              type="text" 
-                              placeholder="e.g. Paris" 
-                              value={destination} 
-                              onChange={(e) => setDestination(e.target.value)}
-                              required
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Duration */}
-                      <div className="form-group">
-                        <div className="form-label" style={{ justifyContent: 'space-between' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Calendar size={14} /> Trip Duration
-                          </span>
-                          <span style={{ color: 'var(--primary)', fontWeight: 800 }}>{days} Days</span>
-                        </div>
-                        <input 
-                          type="range" 
-                          min="1" 
-                          max="10" 
-                          value={days} 
-                          onChange={(e) => setDays(parseInt(e.target.value))}
-                          className="duration-slider"
-                        />
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                          <span>01 Day</span>
-                          <span>05 Days</span>
-                          <span>10 Days</span>
-                        </div>
-                      </div>
-
-                      {/* Budget */}
-                      <div className="form-group">
-                        <label className="form-label">
-                          <DollarSign size={14} /> Select Budget Tier
-                        </label>
-                        <div className="radio-card-grid">
-                          {BUDGET_TIERS.map((tier) => {
-                            const IconComponent = tier.icon;
-                            return (
-                              <div 
-                                key={tier.label}
-                                className={`radio-card ${budget === tier.label ? 'selected' : ''}`}
-                                onClick={() => setBudget(tier.label as any)}
-                              >
-                                <IconComponent size={20} className="radio-card-emoji" />
-                                <span className="radio-card-label">{tier.label}</span>
-                                <span style={{ fontSize: '9px', color: 'var(--text-secondary)', textAlign: 'center' }}>
-                                  {tier.desc}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Travel Mode */}
-                      <div className="form-group">
-                        <label className="form-label">
-                          <Navigation size={14} /> Travel Mode
-                        </label>
-                        <div className="radio-card-grid travel-mode-grid">
-                          {TRAVEL_MODES.map((mode) => {
-                            const IconComponent = mode.icon;
-                            return (
-                              <div 
-                                key={mode.label}
-                                className={`radio-card ${travelMode === mode.label ? 'selected' : ''}`}
-                                onClick={() => setTravelMode(mode.label as any)}
-                              >
-                                <IconComponent size={20} className="radio-card-emoji" />
-                                <span className="radio-card-label">{mode.label}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Right Column */}
-                    <div className="form-column-right">
-                      {/* Interests */}
-                      <div className="form-group">
-                        <label className="form-label">
-                          <Sparkles size={14} /> Select Interests
-                        </label>
-                        <div className="interests-grid">
-                          {INTERESTS_OPTIONS.map((option) => {
-                            const isSelected = interests.includes(option.label);
-                            const IconComponent = option.icon;
-                            return (
-                              <div 
-                                key={option.label}
-                                className={`interest-item ${isSelected ? 'selected' : ''}`}
-                                onClick={() => handleInterestToggle(option.label)}
-                              >
-                                <div className="interest-checkbox">
-                                  {isSelected && '✓'}
-                                </div>
-                                <IconComponent className="interest-icon" size={16} />
-                                <span className="interest-label">{option.label}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Custom preferences */}
-                      <div className="form-group">
-                        <label className="form-label">
-                          Other Details & Notes
-                        </label>
-                        <textarea 
-                          placeholder="e.g. Vegetarian cuisine preference, traveling with parents, wheel-chair accessible routes, slow-paced travel..."
-                          className="custom-textarea"
-                          value={otherPreferences}
-                          onChange={(e) => setOtherPreferences(e.target.value)}
-                          style={{ minHeight: '120px' }}
-                        />
-                      </div>
-                    </div>
-
+                  <div className="field">
+                    <label htmlFor="pf-to">Going to</label>
+                    <input
+                      id="pf-to"
+                      className="input"
+                      placeholder="e.g. Paris"
+                      value={destination}
+                      onChange={(e) => setDestination(e.target.value)}
+                      required
+                    />
                   </div>
+                </div>
+              </fieldset>
 
-                  <div className="ticket-footer-perforation"></div>
-
-                  <button 
-                    type="submit" 
-                    className="generate-btn" 
-                    disabled={isLoading}
+              <fieldset className="pf-block">
+                <legend className="pf-legend">How long</legend>
+                <div className="pf-days">
+                  <output
+                    className="pf-days-num"
+                    htmlFor="pf-days"
+                    style={{ fontVariationSettings: `'wght' ${300 + days * 50}, 'wdth' ${100 - (10 - days) * 2}, 'opsz' 96` }}
                   >
-                    <Compass className={isLoading ? 'spin' : ''} size={18} />
-                    {isLoading ? 'Printing Itinerary...' : 'Stamp & Print Itinerary'}
-                  </button>
-                </form>
-              </section>
-
-              {/* Suggestions */}
-              <section className="templates-section">
-                <h4 className="templates-title">Quick Starter Templates</h4>
-                <div className="suggestion-cards-grid">
-                  {SUGGESTION_TEMPLATES.map((tpl, i) => (
-                    <div 
-                      key={i} 
-                      className="suggestion-card glass"
-                      onClick={() => handleApplyTemplate(tpl)}
-                    >
-                      <div className="suggestion-card-title">{tpl.title}</div>
-                      <div className="suggestion-card-desc">{tpl.desc}</div>
-                      <div className="suggestion-card-meta">
-                        <span>{tpl.from} <ArrowRight size={10} style={{ display: 'inline', margin: '0 2px' }} /> {tpl.destination}</span>
-                        <span>•</span>
-                        <span>{tpl.days} Days</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-          )}
-
-          {/* TAB 2: Itinerary Results */}
-          {activeTab === 'itinerary' && (
-            <main className="results-panel">
-              {isLoading ? (
-                <LoadingScreen />
-              ) : error ? (
-                <div className="empty-state">
-                  <AlertCircle className="empty-illustration" size={48} style={{ color: 'var(--primary)' }} />
-                  <h3 className="empty-title">Plan Synthesizer Error</h3>
-                  <p className="empty-desc" style={{ color: 'var(--primary)' }}>{error}</p>
-                  <button 
-                    className="action-btn primary" 
-                    onClick={() => setActiveTab('form')}
-                  >
-                    Return to Ticket Setup
-                  </button>
-                </div>
-              ) : itinerary ? (
-                <ItineraryDisplay 
-                  itinerary={itinerary} 
-                  onSaveTrip={handleSaveCurrentTrip}
-                  isSaved={isCurrentTripSaved}
-                />
-              ) : (
-                <div className="empty-state">
-                  <Map className="empty-illustration" size={48} style={{ color: 'var(--primary)' }} />
-                  <h2 className="empty-title">No Active Journey</h2>
-                  <p className="empty-desc">
-                    You have not compiled a travel itinerary yet. Go to the "Plan Trip" tab and stamp your ticket.
-                  </p>
-                  <button 
-                    className="action-btn primary" 
-                    onClick={() => setActiveTab('form')}
-                  >
-                    Setup Trip Parameters
-                  </button>
-                </div>
-              )}
-            </main>
-          )}
-
-          {/* TAB 3: Saved Binder */}
-          {activeTab === 'saved' && (
-            <div className="tab-pane-container">
-              <section className="saved-binder-section">
-                <div className="binder-header">
-                  <h2 className="panel-section-title">Passport Itinerary Binder</h2>
-                  <p className="panel-section-desc">Revisit past planned destinations and travel logs.</p>
-                </div>
-
-                {savedTrips.length === 0 ? (
-                  <div className="empty-state" style={{ margin: '40px auto' }}>
-                    <FolderOpen size={48} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-                    <h3 className="empty-title">Binder is Empty</h3>
-                    <p className="empty-desc">No journeys have been saved to local memory yet.</p>
-                    <button 
-                      className="action-btn primary" 
-                      onClick={() => setActiveTab('form')}
-                    >
-                      Plan Your First Trip
-                    </button>
+                    {days}
+                  </output>
+                  <div className="pf-days-ctl">
+                    <label htmlFor="pf-days" className="pf-days-label">
+                      {days === 1 ? 'day' : 'days'}
+                    </label>
+                    <input
+                      id="pf-days"
+                      className="range"
+                      type="range"
+                      min={1}
+                      max={10}
+                      value={days}
+                      onChange={(e) => setDays(parseInt(e.target.value))}
+                    />
                   </div>
-                ) : (
-                  <div className="saved-binder-grid">
-                    {savedTrips.map((trip) => (
-                      <div 
-                        key={trip.id}
-                        className="passport-card glass"
-                        onClick={() => handleLoadSavedTrip(trip)}
+                </div>
+              </fieldset>
+
+              <fieldset className="pf-block">
+                <legend className="pf-legend">Budget</legend>
+                <div className="pf-budget">
+                  {BUDGET_TIERS.map((tier) => {
+                    const Icon = tier.icon;
+                    return (
+                      <button
+                        type="button"
+                        key={tier.label}
+                        className="tier"
+                        aria-pressed={budget === tier.label}
+                        onClick={() => setBudget(tier.label)}
                       >
-                        <div className="passport-stamp-decoration">PASSPORT</div>
-                        <div className="passport-card-body">
-                          <h3 className="passport-dest">{trip.itinerary.tripOverview.destination}</h3>
-                          <div className="passport-title-sub">{trip.itinerary.tripOverview.title}</div>
-                          
-                          <div className="passport-details-row">
-                            <div className="passport-meta-item">
-                              <Calendar size={12} />
-                              <span>{trip.itinerary.tripOverview.durationDays} Days</span>
-                            </div>
-                            <div className="passport-meta-item">
-                              <DollarSign size={12} />
-                              <span>{trip.preferences.budget}</span>
-                            </div>
-                            <div className="passport-meta-item">
-                              <Navigation size={12} />
-                              <span>{trip.preferences.travelMode}</span>
-                            </div>
-                          </div>
-                          
-                          <div className="passport-card-footer">
-                            <span className="passport-date">Issued: {trip.dateCreated}</span>
-                            <button 
-                              className="passport-delete-btn" 
-                              onClick={(e) => handleDeleteSavedTrip(trip.id, e)}
-                              title="Delete Journey log"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </div>
-          )}
+                        <Icon size={22} aria-hidden />
+                        <strong>{tier.label}</strong>
+                        <span>{tier.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
 
-        </div>
-      </div>
+              <fieldset className="pf-block">
+                <legend className="pf-legend">Getting around</legend>
+                <div className="pf-chips">
+                  {TRAVEL_MODES.map((mode) => {
+                    const Icon = mode.icon;
+                    return (
+                      <button
+                        type="button"
+                        key={mode.label}
+                        className="chip"
+                        aria-pressed={travelMode === mode.label}
+                        onClick={() => setTravelMode(mode.label)}
+                      >
+                        <Icon size={18} aria-hidden />
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <fieldset className="pf-block">
+                <legend className="pf-legend">What you love</legend>
+                <div className="pf-chips">
+                  {INTERESTS_OPTIONS.map((option) => {
+                    const selected = interests.includes(option.label);
+                    const Icon = selected ? Check : option.icon;
+                    return (
+                      <button
+                        type="button"
+                        key={option.label}
+                        className="chip"
+                        aria-pressed={selected}
+                        onClick={() => handleInterestToggle(option.label)}
+                      >
+                        <Icon size={18} aria-hidden />
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <div className="pf-block field">
+                <label htmlFor="pf-notes">Anything else we should know?</label>
+                <textarea
+                  id="pf-notes"
+                  className="input"
+                  placeholder="Vegetarian food, traveling with parents, step-free routes, slow pace..."
+                  value={otherPreferences}
+                  onChange={(e) => setOtherPreferences(e.target.value)}
+                />
+              </div>
+
+              <button type="submit" className="btn btn-primary btn-lg pf-submit" disabled={isLoading}>
+                <Sparkles size={20} aria-hidden className={isLoading ? 'spin' : ''} />
+                {isLoading ? 'Building your trip...' : 'Build my itinerary'}
+              </button>
+            </form>
+
+            <aside className="plan-side">
+              <div className="live-tag-wrap" aria-label="Trip summary">
+                <div className="live-tag tag tag-shadow">
+                  <div className="lt-code">{destination.trim() ? cityCode(destination) : '???'}</div>
+                  <div className="lt-route">
+                    <span>{from.trim() || 'Origin'}</span>
+                    <ArrowRight size={16} aria-hidden />
+                    <span>{destination.trim() || 'Destination'}</span>
+                  </div>
+                  <dl className="lt-facts">
+                    <div>
+                      <dt>Length</dt>
+                      <dd>{days} {days === 1 ? 'day' : 'days'}</dd>
+                    </div>
+                    <div>
+                      <dt>Budget</dt>
+                      <dd>{budget}</dd>
+                    </div>
+                    <div>
+                      <dt>Travel</dt>
+                      <dd>{travelMode}</dd>
+                    </div>
+                    <div>
+                      <dt>Interests</dt>
+                      <dd>{interests.length}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <section className="starts" aria-labelledby="starts-h">
+                <h2 id="starts-h">Or start from a sample</h2>
+                <ul>
+                  {SUGGESTION_TEMPLATES.map((tpl) => (
+                    <li key={tpl.code}>
+                      <button type="button" className="start" onClick={() => handleApplyTemplate(tpl)}>
+                        <span className="start-code">{tpl.code}</span>
+                        <span className="start-text">
+                          <strong>{tpl.title}</strong>
+                          <span>{tpl.days} days, {tpl.desc}</span>
+                        </span>
+                        <ArrowRight size={18} aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </aside>
+          </div>
+        )}
+
+        {/* ITINERARY */}
+        {activeTab === 'itinerary' &&
+          (isLoading ? (
+            <LoadingScreen />
+          ) : error ? (
+            <div className="state rise" role="alert">
+              <AlertCircle size={44} aria-hidden />
+              <h2>We could not build that plan</h2>
+              <p>{error}</p>
+              <button className="btn btn-primary" onClick={() => setActiveTab('form')}>
+                Back to the planner
+              </button>
+            </div>
+          ) : itinerary ? (
+            <ItineraryDisplay itinerary={itinerary} onSaveTrip={() => void handleSaveCurrentTrip()} isSaved={isCurrentTripSaved} />
+          ) : (
+            <div className="state rise">
+              <Map size={44} aria-hidden />
+              <h2>No itinerary yet</h2>
+              <p>Fill in the planner and your day-by-day plan will show up here.</p>
+              <button className="btn btn-primary" onClick={() => setActiveTab('form')}>
+                Open the planner
+              </button>
+            </div>
+          ))}
+
+        {/* SAVED */}
+        {activeTab === 'saved' && (
+          <section className="saved rise">
+            <header className="plan-head">
+              <h1>Saved trips</h1>
+              <p>Saved to your account. Open one to read it again.</p>
+            </header>
+
+            {savedTrips.length === 0 ? (
+              <div className="state">
+                <FolderOpen size={44} aria-hidden />
+                <h2>Nothing saved yet</h2>
+                <p>Every plan you generate lands here automatically.</p>
+                <button className="btn btn-primary" onClick={() => setActiveTab('form')}>
+                  Plan your first trip
+                </button>
+              </div>
+            ) : (
+              <ul className="saved-grid">
+                {savedTrips.map((trip, i) => (
+                  <li key={trip.id} className="saved-item" style={{ ['--rot' as string]: `${[-1.6, 1.2, -0.8, 1.6][i % 4]}deg` }}>
+                    <div className="saved-tag tag tag-shadow">
+                      <button className="saved-open" onClick={() => handleLoadSavedTrip(trip)}>
+                        <span className="saved-code">{cityCode(trip.itinerary.tripOverview.destination)}</span>
+                        <span className="saved-dest">{trip.itinerary.tripOverview.destination}</span>
+                        <span className="saved-title">{trip.itinerary.tripOverview.title}</span>
+                        <span className="saved-meta">
+                          <span><Calendar size={14} aria-hidden /> {trip.itinerary.tripOverview.durationDays} days</span>
+                          <span><WalletIcon size={14} aria-hidden /> {trip.preferences.budget}</span>
+                          <span><Navigation size={14} aria-hidden /> {trip.preferences.travelMode}</span>
+                          <span><MapPin size={14} aria-hidden /> {trip.dateCreated}</span>
+                        </span>
+                      </button>
+                      <button
+                        className="saved-del"
+                        onClick={() => void handleDeleteSavedTrip(trip.id)}
+                        aria-label={`Delete ${trip.itinerary.tripOverview.title}`}
+                      >
+                        <Trash2 size={18} aria-hidden />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+      </main>
     </div>
+    </>
   );
 }
 

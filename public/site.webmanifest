@@ -4,8 +4,8 @@
   "description": "Generate bespoke, day-by-day travel itineraries tailored to your budget, interests, and travel style.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0c10",
-  "theme_color": "#f35e3e",
+  "background_color": "#f2f4fb",
+  "theme_color": "#2a3fe8",
   "orientation": "portrait-primary",
   "icons": [
     {

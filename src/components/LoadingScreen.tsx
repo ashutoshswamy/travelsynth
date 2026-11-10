@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Compass } from 'lucide-react';
 
 const LOADING_PHRASES = [
   'Packing your digital bags...',
@@ -19,22 +18,23 @@ export const LoadingScreen: React.FC = () => {
     const interval = setInterval(() => {
       setPhraseIndex((prev) => (prev + 1) % LOADING_PHRASES.length);
     }, 2800);
-
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="loading-screen">
-      <div className="compass-container">
-        <div className="compass-outer"></div>
-        <div className="compass-inner">
-          <Compass className="compass-needle" size={36} />
+    <div className="loading" role="status" aria-live="polite">
+      <div className="loading-tag-wrap" aria-hidden>
+        <div className="loading-string" />
+        <div className="tag tag-shadow loading-tag">
+          <span className="loading-tag-line" />
+          <span className="loading-tag-line short" />
+          <span className="loading-tag-line" />
         </div>
       </div>
-      <h2 className="loading-title">Synthesizing Your Trip</h2>
-      <p className="loading-subtitle">{LOADING_PHRASES[phraseIndex]}</p>
-      <div className="progress-track">
-        <div className="progress-bar"></div>
+      <h2 className="loading-title">Building your trip</h2>
+      <p className="loading-phrase">{LOADING_PHRASES[phraseIndex]}</p>
+      <div className="loading-bar" aria-hidden>
+        <span />
       </div>
     </div>
   );
