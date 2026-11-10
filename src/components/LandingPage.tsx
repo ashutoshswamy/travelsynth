@@ -1,8 +1,5 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import './LandingPage.css';
-import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { useGSAP } from '@gsap/react';
 import {
   ArrowRight,
   Globe,
@@ -17,8 +14,6 @@ import { ThemeMenu, type ThemePref } from './ThemeMenu';
 import { ActivityCard } from './ItineraryDisplay';
 import { SUGGESTION_TEMPLATES, type TripTemplate } from '../constants';
 import type { Activity, TripPreferences } from '../types';
-
-gsap.registerPlugin(ScrollTrigger);
 
 export type Prefill = Partial<TripPreferences>;
 
@@ -154,7 +149,6 @@ const BENTO = [
 const codeToneRot = ['-3deg', '2deg', '-1.5deg'];
 
 export function LandingPage({ onEnter, onSignIn, signedIn, themePref, onThemeChange }: LandingPageProps) {
-  const root = useRef<HTMLDivElement>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [days, setDays] = useState(4);
@@ -163,46 +157,6 @@ export function LandingPage({ onEnter, onSignIn, signedIn, themePref, onThemeCha
   // Type morph: the more days, the heavier and wider the numeral.
   const dayWeight = 300 + days * 50;
   const dayWidth = 100 - (10 - days) * 2;
-
-  useGSAP(
-    () => {
-      const mm = gsap.matchMedia();
-      mm.add('(prefers-reduced-motion: no-preference)', () => {
-        // Authored moment: the tag drops on its string and settles with a swing from the eyelet.
-        gsap.set('.hero-tag', { transformOrigin: '50% 30px' });
-        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-        tl.from('.hero-line', { yPercent: 110, opacity: 0, duration: 0.8, stagger: 0.1 })
-          .from('.hero-sub, .hero-cta', { y: 20, opacity: 0, duration: 0.6, stagger: 0.1 }, '-=0.4')
-          .from('.hero-tag', { y: -420, rotate: 24, duration: 0.9, ease: 'power2.in' }, 0.15)
-          .to('.hero-tag', { rotate: 0, duration: 1.4, ease: 'elastic.out(1, 0.25)' })
-          .from('.hero-sticker', { scale: 0, rotate: -40, duration: 0.5, stagger: 0.12, ease: 'back.out(2)' }, '-=1.1');
-
-        // Reveals: one rhythm, reserved for content that arrives from below the fold.
-        gsap.utils.toArray<HTMLElement>('.reveal').forEach((el) => {
-          gsap.from(el, {
-            y: 36,
-            opacity: 0,
-            duration: 0.8,
-            ease: 'power3.out',
-            scrollTrigger: { trigger: el, start: 'top 88%', once: true },
-          });
-        });
-        gsap.utils.toArray<HTMLElement>('.step-tag').forEach((el, i) => {
-          gsap.from(el, {
-            y: 60,
-            rotate: i % 2 ? 6 : -6,
-            opacity: 0,
-            duration: 0.9,
-            ease: 'power3.out',
-            scrollTrigger: { trigger: '.steps-row', start: 'top 80%', once: true },
-            delay: i * 0.12,
-          });
-        });
-      });
-      return () => mm.revert();
-    },
-    { scope: root }
-  );
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -218,7 +172,7 @@ export function LandingPage({ onEnter, onSignIn, signedIn, themePref, onThemeCha
   const day = SAMPLE_DAYS[sampleDay];
 
   return (
-    <div className="lp" ref={root}>
+    <div className="lp">
       <header className="lp-header">
         <div className="lp-header-in">
           <a className="logo" href="#top" aria-label="TravelSynth home">
